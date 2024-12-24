@@ -1,91 +1,100 @@
+// controllers/favourite_controller.go
+
 package controllers
 
 import (
-    "beego-cat-app/models"
+    "encoding/json"
+    "net/http"
+    "time"
     "fmt"
     "github.com/beego/beego/v2/server/web"
-    "log"
-    "net/http"
-    "encoding/json"
-    "sync"
 )
 
-// FavoriteController handles requests related to favorite cat images
-type FavoriteController struct {
+type FavoritesController struct {
     web.Controller
 }
 
-// ShowFavorites fetches the favorite images and sends them as a JSON response
-func (c *FavoriteController) ShowFavorites() {
-    favoriteIDs := []string{"abc123", "def456", "ghi789"} // Example favorite IDs
-
-    // Create a channel to manage concurrent fetching
-    ch := make(chan models.CatImage)
-    var wg sync.WaitGroup
-
-    // Launch a goroutine for each favorite image ID
-    for _, id := range favoriteIDs {
-        wg.Add(1)
-        go fetchCatImage(id, ch, &wg)
-    }
-
-    // Collect the responses
-    var catImages []models.CatImage
-    go func() {
-        // Wait for all goroutines to finish
-        wg.Wait()
-        close(ch) // Close the channel after all goroutines are done
-    }()
-
-    // Collect cat images from the channel
-    for catImage := range ch {
-        catImages = append(catImages, catImage)
-    }
-
-    // Return the favorite cat images as a JSON response
-    c.Data["json"] = catImages
-    c.ServeJSON()
+type Favorite struct {
+    ID        string    `json:"id"`
+    ImageID   string    `json:"image_id"`
+    URL       string    `json:"url"`
+    SubID     string    `json:"sub_id"`
+    CreatedAt time.Time `json:"created_at"`
 }
 
-// Fetch a cat image from the CatAPI
-func fetchCatImage(id string, ch chan<- models.CatImage, wg *sync.WaitGroup) {
-    defer wg.Done() // Mark the goroutine as done when it finishes
+type SyncFavoritesRequest struct {
+    Favorites []Favorite `json:"favorites"`
+}
 
-    // URL to fetch the cat image details from the CatAPI
-    apiURL := fmt.Sprintf("https://api.thecatapi.com/v1/images/%s", id)
-
-    // Make the request to CatAPI
-    req, err := http.NewRequest("GET", apiURL, nil)
+// GetUserFavorites retrieves favorites for a specific user
+func (c *FavoritesController) GetUserFavorites() {
+    subID := c.Ctx.Input.Param(":subId")
+    apiKey, _ := web.AppConfig.String("cat_api_key")
+    
+    // Create HTTP client with timeout
+    client := &http.Client{Timeout: 10 * time.Second}
+    
+    // Make request to The Cat API
+    req, err := http.NewRequest("GET", 
+        fmt.Sprintf("https://api.thecatapi.com/v1/favourites?sub_id=%s", subID), 
+        nil)
     if err != nil {
-        log.Println("Error creating request:", err)
+        c.Error(500, "Failed to create request")
         return
     }
-	API_KEY, _ := web.AppConfig.String("cat_api_key")
-    // BASE_URL, _ := web.AppConfig.String("cat_api_base_url")
-    // Add the API key to the request header
-    req.Header.Add("x-api-key", API_KEY)
-
-    client := &http.Client{}
+    
+    req.Header.Add("x-api-key", apiKey)
+    
     resp, err := client.Do(req)
     if err != nil {
-        log.Println("Error making request to CatAPI:", err)
+        c.Error(500, "Failed to fetch favorites")
         return
     }
     defer resp.Body.Close()
-
-    // Check for a non-200 status code (indicating an error)
+    
     if resp.StatusCode != http.StatusOK {
-        log.Println("Error: Received non-200 response status code:", resp.StatusCode)
+        c.Error(resp.StatusCode, "Failed to get favorites from API")
         return
     }
-
-    // Parse the JSON response
-    var catImage models.CatImage
-    if err := json.NewDecoder(resp.Body).Decode(&catImage); err != nil {
-        log.Println("Error decoding JSON response:", err)
+    
+    // Parse and return the favorites
+    var favorites []Favorite
+    if err := json.NewDecoder(resp.Body).Decode(&favorites); err != nil {
+        c.Error(500, "Failed to parse favorites")
         return
     }
+    
+    c.Data["json"] = favorites
+    c.ServeJSON()
+}
 
-    // Send the fetched image details to the channel
-    ch <- catImage
+// SyncFavorites synchronizes favorites with the backend
+func (c *FavoritesController) SyncFavorites() {
+    subID := c.Ctx.Input.Param(":subId")
+    
+    var req SyncFavoritesRequest
+    if err := json.Unmarshal(c.Ctx.Input.RequestBody, &req); err != nil {
+        c.Error(400, "Invalid request data")
+        return
+    }
+    
+    // Here you could save the favorites to your database
+    // For example:
+    // err := models.SaveUserFavorites(subID, req.Favorites)
+    
+    // For now, we'll just log them
+    fmt.Printf("Synced %d favorites for user %s\n", len(req.Favorites), subID)
+    
+    c.Data["json"] = map[string]interface{}{
+        "message": "Favorites synced successfully",
+        "count":   len(req.Favorites),
+    }
+    c.ServeJSON()
+}
+
+// Error handles error responses
+func (c *FavoritesController) Error(status int, message string) {
+    c.Ctx.Output.SetStatus(status)
+    c.Data["json"] = map[string]string{"error": message}
+    c.ServeJSON()
 }

@@ -29,3 +29,13 @@ func (c *MainController) ShowBreeds() {
 func (c *MainController) ShowVoting() {
 	c.TplName = "voting.html"
 }
+
+
+
+
+
+
+// For DEBUG
+func (c *UnifiedController) ShowDebug() {
+    c.TplName = "debug.html"
+}

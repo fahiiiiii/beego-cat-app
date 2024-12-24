@@ -1,0 +1,38 @@
+<!-- views/debug.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug View</title>
+    <script>
+        async function loadAllData() {
+            try {
+                const response = await fetch('/debug');
+                const data = await response.json();
+                document.getElementById('content').textContent = JSON.stringify(data, null, 2);
+                
+                // Update status indicators
+                document.getElementById('breedsStatus').textContent = 
+                    data.breeds && data.breeds.length > 0 ? '✅' : '❌';
+                document.getElementById('favoritesStatus').textContent = 
+                    data.favorites && data.favorites.length > 0 ? '✅' : '❌';
+                document.getElementById('imagesStatus').textContent = 
+                    data.catImages && data.catImages.length > 0 ? '✅' : '❌';
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('content').textContent = 'Error loading data: ' + error.message;
+            }
+        }
+    </script>
+</head>
+<body onload="loadAllData()">
+    <h1>Debug View</h1>
+    <div>
+        <h2>Status:</h2>
+        <p>Breeds: <span id="breedsStatus">Loading...</span></p>
+        <p>Favorites: <span id="favoritesStatus">Loading...</span></p>
+        <p>Cat Images: <span id="imagesStatus">Loading...</span></p>
+    </div>
+    <h2>Raw Data:</h2>
+    <pre id="content">Loading...</pre>
+</body>
+</html>

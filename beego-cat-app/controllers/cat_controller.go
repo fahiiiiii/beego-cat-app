@@ -10,15 +10,16 @@ import (
     "github.com/beego/beego/v2/server/web"
     "beego-cat-app/models"
 )
+// SaveFavoriteRequest represents the structure of the request body
 
+type SaveFavoriteRequest struct {
+    ImageID  string `json:"image_id"`
+    ImageURL string `json:"image_url"`
+}
 type CatController struct {
     web.Controller
 }
 
-// type CatImage struct {
-//     URL string `json:"url"`
-//     ID  string `json:"id"`
-// }
 
 type ImageChannel struct {
     images chan []models.CatImage
@@ -60,39 +61,7 @@ func (c *CatController) fetchCatImages(imgChan *ImageChannel) {
     imgChan.images <- images
 }
 
-// GetImages handles the GET request for fetching cat images
-// func (c *CatController) GetImages() {
-//     // Set CORS headers
-//     c.Ctx.Output.Header("Access-Control-Allow-Origin", "*")
-//     c.Ctx.Output.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
-//     c.Ctx.Output.Header("Access-Control-Allow-Headers", "Content-Type")
 
-//     // Handle OPTIONS request
-//     if c.Ctx.Request.Method == "OPTIONS" {
-//         c.Ctx.Output.SetStatus(200)
-//         return
-//     }
-
-//     imgChan := NewImageChannel()
-    
-//     // Fetch images asynchronously
-//     go c.fetchCatImages(imgChan)
-
-//     // Wait for response with timeout
-//     select {
-//     case images := <-imgChan.images:
-//         c.Data["json"] = images
-//         c.ServeJSON()
-//     case err := <-imgChan.errors:
-//         c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-//         c.Data["json"] = map[string]string{"error": err.Error()}
-//         c.ServeJSON()
-//     case <-time.After(12 * time.Second):
-//         c.Ctx.Output.SetStatus(http.StatusRequestTimeout)
-//         c.Data["json"] = map[string]string{"error": "Request timeout"}
-//         c.ServeJSON()
-//     }
-// }
 // GetImages handles fetching cat images
 func (c *CatController) GetImages() {
     API_KEY, _ := web.AppConfig.String("cat_api_key")
@@ -159,6 +128,108 @@ func (c *CatController) GetRandomImage() {
     c.ServeJSON()
 }
 
+
+
+
+
+
+func (c *CatController) SaveFavorite() {
+    subID := c.Ctx.Input.Param(":subId")
+    
+    var reqData SaveFavoriteRequest
+    if err := json.Unmarshal(c.Ctx.Input.RequestBody, &reqData); err != nil {
+        c.Error(http.StatusBadRequest, "Invalid request data")
+        return
+    }
+
+    // Log the favorite in your system
+    fmt.Printf("Saving favorite image for subId: %s, ImageID: %s, URL: %s\n", 
+        subID, reqData.ImageID, reqData.ImageURL)
+
+    // Here you could save to your own database if needed
+    // For example: SaveFavoriteToDatabase(subID, reqData.ImageID, reqData.ImageURL)
+
+    c.Data["json"] = map[string]string{
+        "message": "Favorite logged successfully",
+        "sub_id": subID,
+        "image_id": reqData.ImageID,
+    }
+    c.ServeJSON()
+}
+
+// GetFavorites retrieves favorites for a specific user from The Cat API
+func (c *CatController) GetFavorites() {
+    subID := c.Ctx.Input.Param(":subId")
+    apiKey, _ := web.AppConfig.String("cat_api_key")
+    
+    client := &http.Client{Timeout: 10 * time.Second}
+    req, _ := http.NewRequest("GET", 
+        fmt.Sprintf("https://api.thecatapi.com/v1/favourites?sub_id=%s", subID), 
+        nil)
+    
+    req.Header.Add("x-api-key", apiKey)
+
+    resp, err := client.Do(req)
+    if err != nil {
+        c.Error(http.StatusInternalServerError, err.Error())
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        c.Error(resp.StatusCode, "Failed to fetch favorites")
+        return
+    }
+
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        c.Error(http.StatusInternalServerError, err.Error())
+        return
+    }
+
+    c.Ctx.Output.Header("Content-Type", "application/json")
+    c.Ctx.Output.Body(body)
+}
+
+// DeleteFavorite removes a favorite from The Cat API
+func (c *CatController) DeleteFavorite() {
+    favoriteID := c.Ctx.Input.Param(":favoriteId")
+    apiKey, _ := web.AppConfig.String("cat_api_key")
+    
+    client := &http.Client{Timeout: 10 * time.Second}
+    req, _ := http.NewRequest("DELETE", 
+        fmt.Sprintf("https://api.thecatapi.com/v1/favourites/%s", favoriteID), 
+        nil)
+    
+    req.Header.Add("x-api-key", apiKey)
+
+    resp, err := client.Do(req)
+    if err != nil {
+        c.Error(http.StatusInternalServerError, err.Error())
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        c.Error(resp.StatusCode, "Failed to delete favorite")
+        return
+    }
+
+    c.Data["json"] = map[string]string{"message": "Favorite deleted successfully"}
+    c.ServeJSON()
+}
+
+
+
+
+
+
+
+
+
+
+
+
 // Prepare runs before each action
 func (c *CatController) Prepare() {
     // Common setup code for all actions
@@ -170,4 +241,4 @@ func (c *CatController) Error(status int, message string) {
     c.Ctx.Output.SetStatus(status)
     c.Data["json"] = map[string]string{"error": message}
     c.ServeJSON()
-}
+}// SaveFavorite handles saving a favorite cat image to the server
