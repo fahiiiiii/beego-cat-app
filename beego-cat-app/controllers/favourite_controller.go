@@ -1,4 +1,5 @@
-// controllers/favourite_controller.go
+
+//  controllers/favourite_controller.go
 
 package controllers
 
@@ -7,36 +8,71 @@ import (
     "net/http"
     "time"
     "fmt"
+    // "log"
     "github.com/beego/beego/v2/server/web"
+    "io/ioutil"
 )
 
 type FavoritesController struct {
     web.Controller
 }
 
+// struct for Favorite object
 type Favorite struct {
-    ID        string    `json:"id"`
-    ImageID   string    `json:"image_id"`
-    URL       string    `json:"url"`
-    SubID     string    `json:"sub_id"`
-    CreatedAt time.Time `json:"created_at"`
+    ID        interface{} `json:"id"`      // Leave this as interface{} to handle both string and number
+    ImageID   string      `json:"image_id"`
+    URL       string      `json:"url"`
+    SubID     string      `json:"sub_id"`
+    CreatedAt time.Time   `json:"created_at"`
 }
 
 type SyncFavoritesRequest struct {
     Favorites []Favorite `json:"favorites"`
 }
 
-// GetUserFavorites retrieves favorites for a specific user
-func (c *FavoritesController) GetUserFavorites() {
+// GetFavorites retrieves the list of favorites for a given sub_id
+func (c *FavoritesController) GetFavorites() {
     subID := c.Ctx.Input.Param(":subId")
     apiKey, _ := web.AppConfig.String("cat_api_key")
     
-    // Create HTTP client with timeout
+    client := &http.Client{Timeout: 10 * time.Second}
+    req, _ := http.NewRequest("GET", 
+        fmt.Sprintf("https://api.thecatapi.com/v1/favourites?sub_id=%s", subID), 
+        nil)
+    
+    req.Header.Add("x-api-key", apiKey)
+
+    resp, err := client.Do(req)
+    if err != nil {
+        c.Error(http.StatusInternalServerError, err.Error())
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        c.Error(resp.StatusCode, "Failed to fetch favorites")
+        return
+    }
+
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        c.Error(http.StatusInternalServerError, err.Error())
+        return
+    }
+
+    c.Ctx.Output.Header("Content-Type", "application/json")
+    c.Ctx.Output.Body(body)
+}
+
+// RemoveFavorite removes a favorite for a specific user by ID
+func (c *FavoritesController) RemoveFavorite() {
+    favoriteID := c.Ctx.Input.Param(":favoriteId")
+    apiKey, _ := web.AppConfig.String("cat_api_key")
+    
     client := &http.Client{Timeout: 10 * time.Second}
     
-    // Make request to The Cat API
-    req, err := http.NewRequest("GET", 
-        fmt.Sprintf("https://api.thecatapi.com/v1/favourites?sub_id=%s", subID), 
+    req, err := http.NewRequest("DELETE", 
+        fmt.Sprintf("https://api.thecatapi.com/v1/favourites/%s", favoriteID), 
         nil)
     if err != nil {
         c.Error(500, "Failed to create request")
@@ -47,24 +83,17 @@ func (c *FavoritesController) GetUserFavorites() {
     
     resp, err := client.Do(req)
     if err != nil {
-        c.Error(500, "Failed to fetch favorites")
+        c.Error(500, "Failed to remove favorite")
         return
     }
     defer resp.Body.Close()
     
     if resp.StatusCode != http.StatusOK {
-        c.Error(resp.StatusCode, "Failed to get favorites from API")
+        c.Error(resp.StatusCode, "Failed to remove favorite from API")
         return
     }
     
-    // Parse and return the favorites
-    var favorites []Favorite
-    if err := json.NewDecoder(resp.Body).Decode(&favorites); err != nil {
-        c.Error(500, "Failed to parse favorites")
-        return
-    }
-    
-    c.Data["json"] = favorites
+    c.Data["json"] = map[string]string{"message": "Favorite removed successfully"}
     c.ServeJSON()
 }
 
@@ -78,11 +107,7 @@ func (c *FavoritesController) SyncFavorites() {
         return
     }
     
-    // Here you could save the favorites to your database
-    // For example:
-    // err := models.SaveUserFavorites(subID, req.Favorites)
-    
-    // For now, we'll just log them
+    // Log the sync operation
     fmt.Printf("Synced %d favorites for user %s\n", len(req.Favorites), subID)
     
     c.Data["json"] = map[string]interface{}{

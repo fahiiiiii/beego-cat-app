@@ -3,13 +3,17 @@ package controllers
 
 import (
     "encoding/json"
+    "bytes"
+    "io"
     "io/ioutil"
     "net/http"
     "time"
+    // "log"
     "fmt"
     "github.com/beego/beego/v2/server/web"
     "beego-cat-app/models"
 )
+
 // SaveFavoriteRequest represents the structure of the request body
 
 type SaveFavoriteRequest struct {
@@ -25,6 +29,14 @@ type ImageChannel struct {
     images chan []models.CatImage
     errors chan error
 }
+
+
+type VoteData struct {
+    ImageID string `json:"image_id"`
+    Value   int    `json:"value"`
+}
+
+
 
 func NewImageChannel() *ImageChannel {
     return &ImageChannel{
@@ -223,11 +235,68 @@ func (c *CatController) DeleteFavorite() {
 
 
 
+func (c *CatController) SaveVote() {
+    subID := c.Ctx.Input.Param(":subId")
+    apiKey, _ := web.AppConfig.String("cat_api_key")
+    
+    var voteData VoteData
+    if err := json.Unmarshal(c.Ctx.Input.RequestBody, &voteData); err != nil {
+        c.Ctx.Output.SetStatus(http.StatusBadRequest)
+        c.Data["json"] = map[string]string{"error": "Invalid request data"}
+        c.ServeJSON()
+        return
+    }
 
+    // Validate required fields
+    if voteData.ImageID == "" || (voteData.Value != 0 && voteData.Value != 1) {
+        c.Ctx.Output.SetStatus(http.StatusBadRequest)
+        c.Data["json"] = map[string]string{"error": "Invalid vote data"}
+        c.ServeJSON()
+        return
+    }
 
+    // Prepare request to The Cat API
+    payload := map[string]interface{}{
+        "image_id": voteData.ImageID,
+        "sub_id":   subID,
+        "value":    voteData.Value,
+    }
 
+    jsonData, _ := json.Marshal(payload)
+    
+    // Send request to The Cat API
+    client := &http.Client{Timeout: 10 * time.Second}
+    req, _ := http.NewRequest("POST", "https://api.thecatapi.com/v1/votes", bytes.NewBuffer(jsonData))
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("x-api-key", apiKey)
 
+    resp, err := client.Do(req)
+    if err != nil {
+        c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+        c.Data["json"] = map[string]string{"error": "Failed to communicate with The Cat API"}
+        c.ServeJSON()
+        return
+    }
+    defer resp.Body.Close()
 
+    if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+        body, _ := io.ReadAll(resp.Body)
+        c.Ctx.Output.SetStatus(resp.StatusCode)
+        c.Data["json"] = map[string]string{
+            "error": fmt.Sprintf("The Cat API error: %s", string(body)),
+        }
+        c.ServeJSON()
+        return
+    }
+
+    // Return success response
+    c.Data["json"] = map[string]string{
+        "message":  "Vote saved successfully",
+        "sub_id":   subID,
+        "image_id": voteData.ImageID,
+    }
+    c.ServeJSON()
+}
 
 
 // Prepare runs before each action
@@ -242,3 +311,5 @@ func (c *CatController) Error(status int, message string) {
     c.Data["json"] = map[string]string{"error": message}
     c.ServeJSON()
 }// SaveFavorite handles saving a favorite cat image to the server
+
+
